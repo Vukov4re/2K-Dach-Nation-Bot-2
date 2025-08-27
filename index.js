@@ -80,11 +80,12 @@ function buildLfgRow(messageId, locked) {
   return new ActionRowBuilder().addComponents(
     new ButtonBuilder().setCustomId(`lfg:join:${messageId}`).setLabel('Beitreten').setStyle(ButtonStyle.Success).setDisabled(locked),
     new ButtonBuilder().setCustomId(`lfg:leave:${messageId}`).setLabel('Verlassen').setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder().setCustomId(`lfg:room:${messageId}`).setLabel('Privater Raum').setStyle(ButtonStyle.Primary), // NEU
     new ButtonBuilder().setCustomId(`lfg:close:${messageId}`).setLabel('Squad auflösen').setStyle(ButtonStyle.Danger)
   );
 }
 
-// Name frei? => wir nutzen die Existenz einer Squad-Rolle als „belegt“
+// Name frei? → wir nutzen die Existenz einer Squad-Rolle als „belegt“
 function isSquadNameTaken(guild, name) {
   return !!guild.roles.cache.find(r => r.name === name);
 }
@@ -133,6 +134,39 @@ async function createPrivateVoiceIfFull(guild, state) {
   return state;
 }
 
+async function createPrivateThreadIfFull(channel, state, joinedIds) {
+  if (state.threadId) return state;
+  const privThread = await channel.threads.create({
+    name: `[${state.mode}] ${state.name} private`,
+    autoArchiveDuration: 1440,
+    type: ChannelType.PrivateThread
+  }).catch(() => null);
+
+  if (privThread) {
+    state.threadId = privThread.id;
+    for (const uid of joinedIds) {
+      await privThread.members.add(uid).catch(() => {});
+    }
+  }
+  return state;
+}
+
+// Message-Referenz aus URL/ID auflösen (für /lfgedit, /lfgroom)
+function parseMessageRef(input) {
+  const id = (input || '').trim();
+  if (/^\d{17,20}$/.test(id)) return { channelId: null, messageId: id };
+  const m = id.match(/channels\/\d+\/(\d+)\/(\d+)/);
+  return m ? { channelId: m[1], messageId: m[2] } : { channelId: null, messageId: id };
+}
+async function fetchLfgMessageFromInput(interaction, raw) {
+  const ref = parseMessageRef(raw);
+  let ch = null;
+  if (ref.channelId) ch = interaction.guild.channels.cache.get(ref.channelId);
+  if (!ch) ch = interaction.channel;
+  if (!ch || ch.type !== ChannelType.GuildText) return null;
+  return ch.messages.fetch(ref.messageId).catch(() => null);
+}
+
 // ===================== READY =====================
 client.once('ready', () => {
   console.log(`✅ Eingeloggt als ${client.user.tag}`);
@@ -144,15 +178,11 @@ client.on(Events.InteractionCreate, async (i) => {
   if (!i.isAutocomplete()) return;
   try {
     if (i.commandName !== 'lfg' || i.options.getFocused(true).name !== 'squad_name') return;
-
     const query = (i.options.getFocused() || '').toLowerCase();
     const free = SQUAD_NAME_POOL.filter(name => !isSquadNameTaken(i.guild, name));
     const filtered = free.filter(n => n.toLowerCase().includes(query)).slice(0, 25);
-
     await i.respond(filtered.map(n => ({ name: n, value: n })));
-  } catch (e) {
-    // ignore autocomplete errors
-  }
+  } catch { /* ignore */ }
 });
 
 // ===================== Slash Commands =====================
@@ -168,20 +198,18 @@ client.on(Events.InteractionCreate, async (i) => {
       await i.deferReply({ ephemeral: true });
       const ch = await ensureLfgChannel(i.guild);
 
-const pinText = [
-  '📌 **So funktioniert die Squad-Suche**',
-  '• **/lfg**: Modus, Plattform, Slots',
-  '• **Optional**:',
-  '  – **squad_name**: freien Namen aus der Liste wählen (Autocomplete, z. B. „Squad Mamba“)',
-  '  – **crossplay**: PS5/Xbox gemeinsam zulassen (✅/❌)',
-  '• **Beitreten/Verlassen** per Button',
-  '• Wenn **voll** → [VOLL], **privater Voice** in „🎤 Squads“ + **privater Thread**',
-  '• **Auflösen**: Host/Mods beenden den Squad (Rolle/Voice wird gelöscht, Thread archiviert)',
-  `• Standard-Ablauf: **${LFG_DEFAULT_TTL_MIN} Minuten**`,
-  '• Bitte respektvoll bleiben, kein Spam'
-].join('\n');
-
-
+      const pinText = [
+        '📌 **So funktioniert die Squad-Suche**',
+        '• **/lfg**: Modus, Plattform, Slots',
+        '• **Optional**:',
+        '  – **squad_name**: freien Namen aus der Liste wählen (Autocomplete, z. B. „Squad Mamba“)',
+        '  – **crossplay**: PS5/Xbox gemeinsam zulassen (✅/❌)',
+        '• **Beitreten/Verlassen** per Button',
+        '• Wenn **voll** → [VOLL], **privater Voice** in „🎤 Squads“ + **privater Thread**',
+        '• **Auflösen**: Host/Mods beenden den Squad (Rolle/Voice wird gelöscht, Thread archiviert)',
+        `• Standard-Ablauf: **${LFG_DEFAULT_TTL_MIN} Minuten**`,
+        '• Bitte respektvoll bleiben, kein Spam'
+      ].join('\n');
 
       const recent = await ch.messages.fetch({ limit: 20 }).catch(() => null);
       const already = recent?.find(m => m.author?.id === i.guild.members.me.id && m.content?.includes('[[LFG_PIN]]'));
@@ -277,6 +305,93 @@ const pinText = [
       return;
     }
 
+    // ========= /lfgedit =========
+    if (i.commandName === 'lfgedit') {
+      await i.deferReply({ ephemeral: true });
+
+      const target = await fetchLfgMessageFromInput(i, i.options.getString('message', true));
+      if (!target) return i.editReply('❌ LFG-Beitrag nicht gefunden.');
+
+      const state = readStateFromEmbed(target);
+      if (!state) return i.editReply('❌ Kein LFG-State im Embed (oder bereits geschlossen).');
+
+      const can = (i.user.id === state.author) || i.memberPermissions.has(PermissionFlagsBits.ManageChannels);
+      if (!can) return i.editReply('⛔ Nur Host oder Mods dürfen diesen Squad bearbeiten.');
+
+      const changes = {
+        name: i.options.getString('squad_name') || null,
+        mode: i.options.getString('modus') || null,
+        platform: i.options.getString('plattform') || null,
+        positions: i.options.getString('positionen') || null,
+        slots: i.options.getInteger('slots') || null,
+        crossplay: (i.options.get('crossplay')?.value ?? null),
+        ttlMin: i.options.getInteger('ttl_minutes') || null,
+      };
+
+      // anwenden
+      if (changes.name) {
+        const nm = normSquadName(changes.name);
+        if (!isNameAllowed(nm)) return i.editReply('❌ Der neue Name ist nicht im Namenspool.');
+        if (isSquadNameTaken(i.guild, nm) && nm !== state.name) return i.editReply('❌ Der neue Name ist bereits vergeben.');
+        // alte Rolle löschen, neue reservieren
+        if (state.roleId) await i.guild.roles.delete(state.roleId).catch(() => {});
+        const newRole = await reserveSquadName(i.guild, nm);
+        state.roleId = newRole.id;
+        state.name = nm;
+      }
+      if (changes.mode) state.mode = changes.mode;
+      if (changes.platform) state.platform = changes.platform;
+      if (changes.positions) state.positions = changes.positions;
+      if (changes.slots) {
+        state.slots = Math.max(1, Math.min(5, changes.slots));
+        if (state.joined.length > state.slots) state.joined = state.joined.slice(0, state.slots);
+      }
+      if (changes.crossplay !== null) state.crossplay = !!changes.crossplay;
+      if (changes.ttlMin) state.ttlMin = changes.ttlMin; // neue TTL für evtl. spätere Verlängerung
+
+      // Embed & Buttons aktualisieren
+      const full = state.joined.length >= state.slots;
+      const updated = renderLfgEmbed({
+        name: state.name, author: state.author, mode: state.mode, platform: state.platform,
+        crossplay: state.crossplay, positions: state.positions, slots: state.slots, joinedIds: state.joined
+      });
+      writeStateToEmbed(updated, state);
+
+      await target.edit({ embeds: [updated], components: [buildLfgRow(target.id, full)] }).catch(()=>{});
+      return i.editReply('✅ Squad aktualisiert.');
+    }
+
+    // ========= /lfgroom =========
+    if (i.commandName === 'lfgroom') {
+      await i.deferReply({ ephemeral: true });
+
+      const target = await fetchLfgMessageFromInput(i, i.options.getString('message', true));
+      if (!target) return i.editReply('❌ LFG-Beitrag nicht gefunden.');
+      const state = readStateFromEmbed(target);
+      if (!state)   return i.editReply('❌ Kein LFG-State im Embed (oder bereits geschlossen).');
+
+      const can = (i.user.id === state.author) || i.memberPermissions.has(PermissionFlagsBits.ManageChannels);
+      if (!can) return i.editReply('⛔ Nur Host oder Mods dürfen das.');
+
+      const wantVoice  = i.options.getBoolean('voice');
+      const wantThread = i.options.getBoolean('thread');
+      const doVoice  = (wantVoice  === null ? true : wantVoice);
+      const doThread = (wantThread === null ? true : wantThread);
+
+      if (doVoice)  await createPrivateVoiceIfFull(i.guild, state);
+      if (doThread) await createPrivateThreadIfFull(target.channel, state, state.joined);
+
+      const full = state.joined.length >= state.slots;
+      const updated = renderLfgEmbed({
+        name: state.name, author: state.author, mode: state.mode, platform: state.platform,
+        crossplay: state.crossplay, positions: state.positions, slots: state.slots, joinedIds: state.joined
+      });
+      writeStateToEmbed(updated, state);
+      await target.edit({ embeds: [updated], components: [buildLfgRow(target.id, full)] }).catch(()=>{});
+
+      return i.editReply(`✅ Privater ${doVoice ? 'Voice' : ''}${(doVoice && doThread) ? ' & ' : ''}${doThread ? 'Thread' : ''} erstellt.`);
+    }
+
   } catch (err) {
     console.error('interaction (command) error:', err);
     try { (i.deferred ? i.editReply : i.reply)({ content: '❌ Fehler bei der Ausführung.', ephemeral: true }); } catch {}
@@ -301,7 +416,7 @@ client.on(Events.InteractionCreate, async (i) => {
     const role = guild.roles.cache.get(state.roleId);
     const member = i.member;
     const isHost = i.user.id === state.author;
-    const isMod = i.memberPermissions.has(PermissionsBitField.Flags.ManageMessages);
+    const isMod = i.memberPermissions.has(PermissionsBitField.Flags.ManageChannels);
 
     const joined = new Set(state.joined || []);
     const isFull = joined.size >= state.slots;
@@ -317,6 +432,16 @@ client.on(Events.InteractionCreate, async (i) => {
       if (!joined.has(i.user.id)) return i.reply({ content: 'Du bist in diesem Squad nicht eingetragen.', flags: 64 });
       joined.delete(i.user.id);
       if (role) await member.roles.remove(role).catch(() => {});
+    }
+
+    if (action === 'room') {
+      if (!isHost && !isMod) return i.reply({ content: '⛔ Nur Host oder Mods dürfen das.', flags: 64 });
+      await createPrivateVoiceIfFull(guild, state);
+      await createPrivateThreadIfFull(msg.channel, state, state.joined);
+      const embR = renderLfgEmbed({ ...state, joinedIds: state.joined });
+      writeStateToEmbed(embR, state);
+      await msg.edit({ embeds: [embR], components: [buildLfgRow(msg.id, state.joined.length >= state.slots)] }).catch(()=>{});
+      return i.reply({ content: '✅ Privater Voice & Thread erstellt.', flags: 64 });
     }
 
     if (action === 'close') {
@@ -343,20 +468,7 @@ client.on(Events.InteractionCreate, async (i) => {
 
     if (nowFull && !state.voiceId) {
       await createPrivateVoiceIfFull(guild, newState);
-
-      // privaten Thread erzeugen + alten schließen
-      const privThread = await i.channel.threads.create({
-        name: `[${newState.mode}] ${newState.name} private`,
-        autoArchiveDuration: 1440,
-        type: ChannelType.PrivateThread
-      }).catch(() => null);
-
-      if (privThread) {
-        newState.threadId = privThread.id;
-        for (const uid of newState.joined) {
-          await privThread.members.add(uid).catch(() => {});
-        }
-      }
+      await createPrivateThreadIfFull(i.channel, newState, newState.joined);
 
       if (state.threadId) {
         const old = guild.channels.cache.get(state.threadId);
