@@ -1,18 +1,38 @@
-// deploy-commands.js (ESM)
+// deploy-commands.js (LFG-Bot) – nur LFG-Commands, saubere Berechtigungen
 import 'dotenv/config';
-import { REST, Routes, SlashCommandBuilder } from 'discord.js';
+import {
+  REST, Routes, SlashCommandBuilder, PermissionFlagsBits,
+} from 'discord.js';
+
+const TOKEN     = (process.env.DISCORD_TOKEN || process.env.TOKEN || '').trim();
+const CLIENT_ID = (process.env.CLIENT_ID || '').trim();
+const SCOPE     = (process.env.DEPLOY_SCOPE || 'guild').toLowerCase(); // 'guild' | 'global'
+const GUILD_ID  = (process.env.GUILD_ID || '').trim();
+const GUILD_IDS = (process.env.GUILD_IDS || '').trim();
+const WIPE_GLOBAL = (process.env.WIPE_GLOBAL || 'false').toLowerCase() === 'true';
+
+if (!TOKEN || !CLIENT_ID) {
+  console.error('❌ ENV fehlt: DISCORD_TOKEN/TOKEN und CLIENT_ID');
+  process.exit(1);
+}
 
 const commands = [];
 
-// --- Beispiel weitere Commands (kannst du lassen) ---
-commands.push(new SlashCommandBuilder().setName('setuplfg').setDescription('Erstellt/prüft den 🔎│squad-suche Kanal (idempotent).'));
+/* ========= setuplfg (nur Admins) ========= */
+commands.push(
+  new SlashCommandBuilder()
+    .setName('setuplfg')
+    .setDescription('Erstellt/prüft den 🔎│squad-suche Kanal (idempotent).')
+    .setDefaultMemberPermissions(PermissionFlagsBits.Administrator) // nur Admins
+    .setDMPermission(false) // nicht in DMs
+);
 
-// --- LFG mit crossplay + squad_name (Autocomplete) ---
+/* ========= lfg (für alle) ========= */
 commands.push(
   new SlashCommandBuilder()
     .setName('lfg')
-    .setDescription('Erstellt eine Squad-Suche mit Buttons.')
-    // --- Required Felder zuerst ---
+    .setDescription('Erstellt eine Squad-Suche.')
+    .setDMPermission(false) // nur in Servern
     .addStringOption(o =>
       o.setName('modus').setDescription('Park / Rec / Pro-Am / MyTeam').setRequired(true)
         .addChoices(
@@ -20,81 +40,80 @@ commands.push(
           { name: 'Rec', value: 'Rec' },
           { name: 'Pro-Am', value: 'Pro-Am' },
           { name: 'MyTeam', value: 'MyTeam' },
-        )
-    )
+        ))
     .addStringOption(o =>
       o.setName('plattform').setDescription('PS5 / Xbox / PC').setRequired(true)
         .addChoices(
           { name: 'PS5', value: 'PS5' },
           { name: 'Xbox', value: 'Xbox' },
           { name: 'PC', value: 'PC' },
-        )
-    )
-    .addStringOption(o =>
-      o.setName('positionen').setDescription('z. B. „PG, C“').setRequired(true)
-    )
-    .addIntegerOption(o =>
-      o.setName('slots').setDescription('Mitspieler (1–5)').setRequired(true)
-        .setMinValue(1).setMaxValue(5)
-    )
-
-    // --- Danach optionale Felder ---
-    .addBooleanOption(o =>
-      o.setName('crossplay').setDescription('Crossplay PS5/Xbox erlauben?').setRequired(false)
-    )
-    .addStringOption(o =>
-      o.setName('squad_name').setDescription('Wunschname (z. B. "Squad Mamba")')
-        .setRequired(false).setAutocomplete(true)
-    )
-    .addStringOption(o =>
-      o.setName('notiz').setDescription('Badges/REP/Region (optional)').setRequired(false)
-    )
-    .addIntegerOption(o =>
-      o.setName('ttl_minutes').setDescription('Ablaufzeit in Minuten (Standard 120)')
-        .setMinValue(15).setMaxValue(1440).setRequired(false)
-    )
+        ))
+    .addStringOption(o => o.setName('positionen').setDescription('z. B. „PG, C“').setRequired(true))
+    .addIntegerOption(o => o.setName('slots').setDescription('Mitspieler (1–5)').setRequired(true).setMinValue(1).setMaxValue(5))
+    .addBooleanOption(o => o.setName('crossplay').setDescription('Crossplay PS5/Xbox erlauben?').setRequired(false))
+    .addStringOption(o => o.setName('squad_name').setDescription('Wunschname (Autocomplete)').setAutocomplete(true).setRequired(false))
+    .addStringOption(o => o.setName('notiz').setDescription('Badges/REP/Region (optional)').setRequired(false))
+    .addIntegerOption(o => o.setName('ttl_minutes').setDescription('Ablaufzeit in Minuten (Standard 120)').setMinValue(15).setMaxValue(1440).setRequired(false))
 );
 
+/* ========= (optional) Mod-Tools – nur ManageChannels ========= */
+commands.push(
+  new SlashCommandBuilder()
+    .setName('lfgedit')
+    .setDescription('Bearbeite einen vorhandenen LFG-Post (Name/Slots/Positions/etc.).')
+    .setDefaultMemberPermissions(PermissionFlagsBits.ManageChannels)
+    .setDMPermission(false)
+    .addStringOption(o => o.setName('message').setDescription('Nachrichtenlink oder -ID des LFG-Posts').setRequired(true))
+    .addStringOption(o => o.setName('squad_name').setDescription('Neuer Squad-Name').setRequired(false))
+    .addStringOption(o => o.setName('modus').setDescription('Park / Rec / Pro-Am / MyTeam')
+      .addChoices({name:'Park',value:'Park'},{name:'Rec',value:'Rec'},{name:'Pro-Am',value:'Pro-Am'},{name:'MyTeam',value:'MyTeam'}).setRequired(false))
+    .addStringOption(o => o.setName('plattform').setDescription('PS5 / Xbox / PC')
+      .addChoices({name:'PS5',value:'PS5'},{name:'Xbox',value:'Xbox'},{name:'PC',value:'PC'}).setRequired(false))
+    .addStringOption(o => o.setName('positionen').setDescription('z. B. „PG, C“').setRequired(false))
+    .addIntegerOption(o => o.setName('slots').setDescription('Mitspieler (1–5)').setMinValue(1).setMaxValue(5).setRequired(false))
+    .addBooleanOption(o => o.setName('crossplay').setDescription('Crossplay erlauben?').setRequired(false))
+    .addIntegerOption(o => o.setName('ttl_minutes').setDescription('Neue Ablaufzeit in Minuten').setMinValue(15).setMaxValue(1440).setRequired(false))
+);
 
-// ----- Deploy-Logik -----
-const token   = process.env.DISCORD_TOKEN || process.env.TOKEN;
-const clientId= process.env.CLIENT_ID;
-const scope   = (process.env.DEPLOY_SCOPE || 'guild').toLowerCase(); // 'guild' | 'global'
-const guildId = process.env.GUILD_ID || '';
-const guildIdsCsv = process.env.GUILD_IDS || '';
-const WIPE_GLOBAL = (process.env.WIPE_GLOBAL || 'false').toLowerCase() === 'true';
+commands.push(
+  new SlashCommandBuilder()
+    .setName('lfgroom')
+    .setDescription('Erstellt manuell den privaten Voice & Thread für einen Squad.')
+    .setDefaultMemberPermissions(PermissionFlagsBits.ManageChannels)
+    .setDMPermission(false)
+    .addStringOption(o => o.setName('message').setDescription('Nachrichtenlink oder -ID des LFG-Posts').setRequired(true))
+    .addBooleanOption(o => o.setName('voice').setDescription('Privaten Voice jetzt erstellen? (Default: ja)').setRequired(false))
+    .addBooleanOption(o => o.setName('thread').setDescription('Privaten Thread jetzt erstellen? (Default: ja)').setRequired(false))
+);
 
-if (!token || !clientId) { console.error('❌ Missing DISCORD_TOKEN/CLIENT_ID'); process.exit(1); }
-
-const rest = new REST({ version: '10' }).setToken(token);
+/* ========= Deploy ========= */
+const rest = new REST({ version: '10' }).setToken(TOKEN);
 
 async function deployGuild(gid) {
   console.log(`📤 Guild-Deploy → ${gid}`);
-  const body = commands.map(c => c.toJSON());
-  await rest.put(Routes.applicationGuildCommands(clientId, gid), { body });
-  console.log(`✅ Guild OK (${body.length} cmds)`);
+  await rest.put(Routes.applicationGuildCommands(CLIENT_ID, gid), {
+    body: commands.map(c => c.toJSON()),
+  });
+  console.log(`✅ Guild OK (${gid})`);
 }
 
 async function deployGlobal() {
   const body = WIPE_GLOBAL ? [] : commands.map(c => c.toJSON());
   console.log(`🌍 Global-Deploy (${WIPE_GLOBAL ? 'WIPE' : body.length + ' cmds'})`);
-  await rest.put(Routes.applicationCommands(clientId), { body });
+  await rest.put(Routes.applicationCommands(CLIENT_ID), { body });
   console.log('✅ Global OK');
 }
 
 (async () => {
   try {
-    if (scope === 'global') {
+    if (SCOPE === 'global') {
       await deployGlobal();
       return;
     }
     const ids = [];
-    if (guildIdsCsv.trim()) ids.push(...guildIdsCsv.split(',').map(s => s.trim()).filter(Boolean));
-    if (guildId && !ids.includes(guildId)) ids.push(guildId);
-
-    if (ids.length === 0) {
-      console.error('❌ DEPLOY_SCOPE=guild aber keine GUILD_ID/GUILD_IDS gesetzt.'); process.exit(1);
-    }
+    if (GUILD_IDS) ids.push(...GUILD_IDS.split(',').map(s => s.trim()).filter(Boolean));
+    if (GUILD_ID && !ids.includes(GUILD_ID)) ids.push(GUILD_ID);
+    if (!ids.length) { console.error('❌ DEPLOY_SCOPE=guild aber keine GUILD_ID/GUILD_IDS gesetzt.'); process.exit(1); }
     for (const gid of ids) await deployGuild(gid);
   } catch (e) {
     console.error('❌ Deploy-Fehler:', e);
