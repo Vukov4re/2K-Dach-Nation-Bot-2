@@ -219,6 +219,95 @@ client.on(Events.InteractionCreate, async (i) => {
       return i.editReply(`✅ LFG-Kanal eingerichtet: ${ch}`);
     }
 
+    // ===== /lfgadd =====
+if (i.commandName === 'lfgadd') {
+  await i.deferReply({ ephemeral: true });
+
+  const target = await fetchLfgMessageFromInput(i, i.options.getString('message', true));
+  if (!target) return i.editReply('❌ LFG-Beitrag nicht gefunden.');
+  const state = readStateFromEmbed(target);
+  if (!state)   return i.editReply('❌ Kein LFG-State im Embed (oder bereits geschlossen).');
+
+  if (!i.memberPermissions.has(PermissionFlagsBits.ManageChannels))
+    return i.editReply('⛔ Nur Mods/Admins dürfen das.');
+
+  const user = i.options.getUser('user', true);
+  const member = await i.guild.members.fetch(user.id).catch(() => null);
+  if (!member) return i.editReply('❌ Mitglied nicht gefunden.');
+
+  // bereits drin?
+  state.joined = state.joined || [];
+  if (state.joined.includes(user.id)) return i.editReply('ℹ️ Dieses Mitglied ist bereits im Squad.');
+
+  // voll?
+  const force = i.options.getBoolean('force') ?? false;
+  const isFull = state.joined.length >= state.slots;
+  if (isFull) {
+    if (!force) return i.editReply('❌ Squad ist voll. Nutze `force:true`, um Slots (max. 5) zu erhöhen.');
+    if (state.slots >= 5) return i.editReply('❌ Slots sind bereits bei 5. Bitte Slots manuell mit /lfgedit erhöhen.');
+    state.slots = Math.min(5, state.joined.length + 1);
+  }
+
+  // Rolle geben
+  const role = i.guild.roles.cache.get(state.roleId);
+  if (role) await member.roles.add(role).catch(() => {});
+  state.joined.push(user.id);
+
+  // in privaten Thread einladen (falls existiert)
+  if (state.threadId) {
+    const thr = i.guild.channels.cache.get(state.threadId);
+    await thr?.members.add(user.id).catch(() => {});
+  }
+
+  // aktualisieren
+  const full = state.joined.length >= state.slots;
+  const emb = renderLfgEmbed({ ...state, joinedIds: state.joined });
+  writeStateToEmbed(emb, state);
+  await target.edit({ embeds: [emb], components: [buildLfgRow(target.id, full)] }).catch(()=>{});
+
+  return i.editReply(`✅ <@${user.id}> wurde zum Squad hinzugefügt.`);
+}
+
+// ===== /lfgkick =====
+if (i.commandName === 'lfgkick') {
+  await i.deferReply({ ephemeral: true });
+
+  const target = await fetchLfgMessageFromInput(i, i.options.getString('message', true));
+  if (!target) return i.editReply('❌ LFG-Beitrag nicht gefunden.');
+  const state = readStateFromEmbed(target);
+  if (!state)   return i.editReply('❌ Kein LFG-State im Embed (oder bereits geschlossen).');
+
+  if (!i.memberPermissions.has(PermissionFlagsBits.ManageChannels))
+    return i.editReply('⛔ Nur Mods/Admins dürfen das.');
+
+  const user = i.options.getUser('user', true);
+  const member = await i.guild.members.fetch(user.id).catch(() => null);
+  if (!member) return i.editReply('❌ Mitglied nicht gefunden.');
+
+  state.joined = state.joined || [];
+  if (!state.joined.includes(user.id)) return i.editReply('ℹ️ Dieses Mitglied ist nicht im Squad.');
+
+  // Rolle entfernen
+  const role = i.guild.roles.cache.get(state.roleId);
+  if (role) await member.roles.remove(role).catch(() => {});
+
+  // aus privatem Thread entfernen
+  if (state.threadId) {
+    const thr = i.guild.channels.cache.get(state.threadId);
+    await thr?.members.remove(user.id).catch(() => {});
+  }
+
+  // austragen
+  state.joined = state.joined.filter(id => id !== user.id);
+
+  const full = state.joined.length >= state.slots;
+  const emb = renderLfgEmbed({ ...state, joinedIds: state.joined });
+  writeStateToEmbed(emb, state);
+  await target.edit({ embeds: [emb], components: [buildLfgRow(target.id, full)] }).catch(()=>{});
+
+  return i.editReply(`✅ <@${user.id}> wurde aus dem Squad entfernt.`);
+}
+
     // /lfg – Squad erstellen
     if (i.commandName === 'lfg') {
       const mode = i.options.getString('modus', true);
