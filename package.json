@@ -1,0 +1,17 @@
+{
+  "name": "nba2k-dach-bot",
+  "version": "1.0.0",
+  "type": "module",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "deploy": "node deploy-commands.js",
+    "deploy:guild": "DEPLOY_SCOPE=guild node deploy-commands.js",
+    "deploy:global": "DEPLOY_SCOPE=global node deploy-commands.js"
+  },
+  "engines": { "node": ">=18 <21" },
+  "dependencies": {
+    "discord.js": "^14.15.3",
+    "dotenv": "^16.4.5"
+  }
+}
