@@ -112,27 +112,36 @@ async function freeSquadResources(guild, state) {
   } catch {}
 }
 
-async function createPrivateVoiceIfFull(guild, state) {
-  if (state.voiceId) return state;
-  const cat = await ensureVoiceCategory(guild);
-  const role = guild.roles.cache.get(state.roleId);
-  if (!role) return state;
+async function createPrivateThreadIfFull(channel, state, joinedIds, force = false) {
+  // Wenn bereits ein Thread existiert:
+  if (state.threadId) {
+    if (!force) return state; // nichts tun, wenn nicht erzwungen
+    // vorhandenen (öffentlichen) Thread schließen
+    const old = channel.guild.channels.cache.get(state.threadId);
+    if (old) {
+      await old.setArchived(true).catch(() => {});
+      await old.setLocked(true).catch(() => {});
+    }
+    state.threadId = null;
+  }
 
-  const everyone = guild.roles.everyone;
-  const voice = await guild.channels.create({
-    name: state.name,
-    type: ChannelType.GuildVoice,
-    parent: cat.id,
-    userLimit: state.slots,
-    permissionOverwrites: [
-      { id: everyone, deny: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.Connect] },
-      { id: role.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.Connect, PermissionFlagsBits.Speak] }
-    ]
-  });
+  // privaten Thread erstellen
+  const privThread = await channel.threads.create({
+    name: `[${state.mode}] ${state.name} private`,
+    type: ChannelType.PrivateThread,
+    autoArchiveDuration: 1440,
+    invitable: false, // niemand kann selbstständig einladen
+  }).catch(() => null);
 
-  state.voiceId = voice.id;
+  if (privThread) {
+    state.threadId = privThread.id;
+    for (const uid of joinedIds) {
+      await privThread.members.add(uid).catch(() => {});
+    }
+  }
   return state;
 }
+
 
 async function createPrivateThreadIfFull(channel, state, joinedIds) {
   if (state.threadId) return state;
@@ -468,7 +477,7 @@ if (i.commandName === 'lfgkick') {
       const doThread = (wantThread === null ? true : wantThread);
 
       if (doVoice)  await createPrivateVoiceIfFull(i.guild, state);
-      if (doThread) await createPrivateThreadIfFull(target.channel, state, state.joined);
+      if (doThread) await createPrivateThreadIfFull(target.channel, state, state.joined, true);
 
       const full = state.joined.length >= state.slots;
       const updated = renderLfgEmbed({
@@ -526,7 +535,7 @@ client.on(Events.InteractionCreate, async (i) => {
     if (action === 'room') {
       if (!isHost && !isMod) return i.reply({ content: '⛔ Nur Host oder Mods dürfen das.', flags: 64 });
       await createPrivateVoiceIfFull(guild, state);
-      await createPrivateThreadIfFull(msg.channel, state, state.joined);
+      await createPrivateThreadIfFull(msg.channel, state, state.joined, true);
       const embR = renderLfgEmbed({ ...state, joinedIds: state.joined });
       writeStateToEmbed(embR, state);
       await msg.edit({ embeds: [embR], components: [buildLfgRow(msg.id, state.joined.length >= state.slots)] }).catch(()=>{});
@@ -557,7 +566,7 @@ client.on(Events.InteractionCreate, async (i) => {
 
     if (nowFull && !state.voiceId) {
       await createPrivateVoiceIfFull(guild, newState);
-      await createPrivateThreadIfFull(i.channel, newState, newState.joined);
+      await createPrivateThreadIfFull(i.channel, newState, newState.joined, true);
 
       if (state.threadId) {
         const old = guild.channels.cache.get(state.threadId);
