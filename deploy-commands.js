@@ -56,6 +56,29 @@ commands.push(
     .addIntegerOption(o => o.setName('ttl_minutes').setDescription('Ablaufzeit in Minuten (Standard 120)').setMinValue(15).setMaxValue(1440).setRequired(false))
 );
 
+// /lfgadd – Mod-Tool: Mitglied manuell hinzufügen
+commands.push(
+  new SlashCommandBuilder()
+    .setName('lfgadd')
+    .setDescription('Fügt ein Mitglied manuell zu einem Squad hinzu.')
+    .setDefaultMemberPermissions(PermissionFlagsBits.ManageChannels)
+    .setDMPermission(false)
+    .addStringOption(o => o.setName('message').setDescription('Nachrichtenlink oder -ID des LFG-Posts').setRequired(true))
+    .addUserOption(o => o.setName('user').setDescription('Mitglied, das hinzugefügt werden soll').setRequired(true))
+    .addBooleanOption(o => o.setName('force').setDescription('Wenn voll: Slots (bis 5) automatisch erhöhen?').setRequired(false))
+);
+
+// /lfgkick – Mod-Tool: Mitglied manuell entfernen
+commands.push(
+  new SlashCommandBuilder()
+    .setName('lfgkick')
+    .setDescription('Entfernt ein Mitglied aus einem Squad.')
+    .setDefaultMemberPermissions(PermissionFlagsBits.ManageChannels)
+    .setDMPermission(false)
+    .addStringOption(o => o.setName('message').setDescription('Nachrichtenlink oder -ID des LFG-Posts').setRequired(true))
+    .addUserOption(o => o.setName('user').setDescription('Mitglied, das entfernt werden soll').setRequired(true))
+);
+
 /* ========= (optional) Mod-Tools – nur ManageChannels ========= */
 commands.push(
   new SlashCommandBuilder()
