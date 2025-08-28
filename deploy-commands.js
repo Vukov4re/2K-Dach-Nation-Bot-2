@@ -18,6 +18,31 @@ if (!TOKEN || !CLIENT_ID) {
 
 const commands = [];
 
+/* ========= announce (nur Admins) ========= */
+commands.push(
+  new SlashCommandBuilder()
+    .setName('announce')
+    .setDescription('Postet eine Ankündigung mit @everyone in einem Kanal.')
+    .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
+    .setDMPermission(false)
+    .addChannelOption(o =>
+      o.setName('channel')
+        .setDescription('Zielkanal')
+        .setRequired(true))
+    .addStringOption(o =>
+      o.setName('titel')
+        .setDescription('Titel der Ankündigung')
+        .setRequired(true))
+    .addStringOption(o =>
+      o.setName('nachricht')
+        .setDescription('Text der Ankündigung')
+        .setRequired(true))
+    .addStringOption(o =>
+      o.setName('emoji')
+        .setDescription('Emoji vor dem Titel (Standard 📢)')
+        .setRequired(false))
+);
+
 /* ========= setuplfg (nur Admins) ========= */
 commands.push(
   new SlashCommandBuilder()
