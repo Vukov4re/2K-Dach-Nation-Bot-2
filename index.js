@@ -296,21 +296,28 @@ if (ttlMin > 0) {
       if (!cur) return;
 
       const emb = renderLfgEmbed({ ...cur, joinedIds: cur.joined });
-      emb.setColor(0x777777).setTitle(`⏲️ [ABGELAUFEN] ${cur.name} – ${cur.mode} (${cur.platform}${cur.crossplay ? ' • Crossplay' : ''})`);
+      emb
+        .setColor(0x777777)
+        .setTitle(`⏲️ [ABGELAUFEN] ${cur.name} – ${cur.mode} (${cur.platform}${cur.crossplay ? ' • Crossplay' : ''})`);
       writeStateToEmbed(emb, cur);
-      await msg.edit({ embeds: [emb], components: [buildLfgRow(post.id, true)] });
+
+      await msg.edit({
+        embeds: [emb],
+        components: [buildLfgRow(post.id, true)],
+      });
 
       if (cur.threadId) {
         const thr = i.guild.channels.cache.get(cur.threadId);
         await thr?.setArchived(true).catch(() => {});
         await thr?.setLocked(true).catch(() => {});
       }
+
       await freeSquadResources(i.guild, cur);
-    } catch {}
+    } catch (err) {
+      console.error('TTL expire error:', err);
+    }
   }, ttlMin * 60 * 1000);
 }
-
-return;
 
 
     /* -------- /lfgedit -------- */
