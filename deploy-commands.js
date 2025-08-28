@@ -96,7 +96,7 @@ commands.push(
     .addStringOption(o => o.setName('positionen').setDescription('z. B. „PG, C“').setRequired(false))
     .addIntegerOption(o => o.setName('slots').setDescription('Mitspieler (1–5)').setMinValue(1).setMaxValue(5).setRequired(false))
     .addBooleanOption(o => o.setName('crossplay').setDescription('Crossplay erlauben?').setRequired(false))
-    .addIntegerOption(o => o.setName('ttl_minutes').setDescription('Neue Ablaufzeit in Minuten').setMinValue(15).setMaxValue(1440).setRequired(false))
+    .addIntegerOption(o => o.setName('ttl_minutes').setDescription('Neue Ablaufzeit in Minuten').setMinValue(0).setMaxValue(1440).setRequired(false))
 );
 
 commands.push(
