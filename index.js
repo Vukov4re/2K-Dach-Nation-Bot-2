@@ -94,6 +94,46 @@ client.on(Events.InteractionCreate, async (i) => {
   if (!i.isChatInputCommand()) return;
 
   try {
+
+        // -------- /announce --------
+    if (i.commandName === "announce") {
+      try {
+        if (!i.memberPermissions?.has(PermissionFlagsBits.Administrator)) {
+          return i.reply({ content: "❌ Nur Admins dürfen /announce nutzen.", ephemeral: true });
+        }
+
+        await i.deferReply({ ephemeral: true });
+
+        const ch    = i.options.getChannel("channel", true);
+        const title = i.options.getString("titel", true);
+        const body  = i.options.getString("nachricht", true);
+        const emoji = i.options.getString("emoji") || "📢";
+
+        const emb = new EmbedBuilder()
+          .setTitle(`${emoji} ${title}`)
+          .setDescription(`${body}\n\n@everyone`)
+          .setColor(0xff0000)
+          .setTimestamp();
+
+        const sent = await ch.send({
+          content: "@everyone",
+          embeds: [emb],
+          allowedMentions: { parse: ["everyone"] },
+        });
+
+        await sent.pin().catch(() => {});
+        await i.editReply(`✅ Ankündigung in ${ch} gepostet und angepinnt.`);
+      } catch (err) {
+        console.error("announce error:", err);
+        try {
+          (i.deferred ? i.editReply : i.reply)({
+            content: "❌ Fehler bei /announce.",
+            ephemeral: true,
+          });
+        } catch {}
+      }
+    }
+
     // -------- /lfg --------
     if (i.commandName === "lfg") {
       const mode = i.options.getString("modus", true);
