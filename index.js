@@ -285,30 +285,33 @@ client.on(Events.InteractionCreate, async (i) => {
 
       await i.editReply(`✅ **${name}** ist live: ${post.url}${publicThread ? ` (Thread: ${publicThread})` : ''}${note ? `\n📝 ${note}` : ''}`);
 
-      // TTL/Auto-Expire
-      setTimeout(async () => {
-        try {
-          const msg = await ch.messages.fetch(post.id).catch(() => null);
-          if (!msg) return;
-          const cur = readStateFromEmbed(msg);
-          if (!cur) return;
+  
+     // TTL/Auto-Expire (nur wenn ttlMin > 0)
+if (ttlMin > 0) {
+  setTimeout(async () => {
+    try {
+      const msg = await ch.messages.fetch(post.id).catch(() => null);
+      if (!msg) return;
+      const cur = readStateFromEmbed(msg);
+      if (!cur) return;
 
-          const emb = renderLfgEmbed({ ...cur, joinedIds: cur.joined });
-          emb.setColor(0x777777).setTitle(`⏲️ [ABGELAUFEN] ${cur.name} – ${cur.mode} (${cur.platform}${cur.crossplay ? ' • Crossplay' : ''})`);
-          writeStateToEmbed(emb, cur);
-          await msg.edit({ embeds: [emb], components: [buildLfgRow(post.id, true)] });
+      const emb = renderLfgEmbed({ ...cur, joinedIds: cur.joined });
+      emb.setColor(0x777777).setTitle(`⏲️ [ABGELAUFEN] ${cur.name} – ${cur.mode} (${cur.platform}${cur.crossplay ? ' • Crossplay' : ''})`);
+      writeStateToEmbed(emb, cur);
+      await msg.edit({ embeds: [emb], components: [buildLfgRow(post.id, true)] });
 
-          if (cur.threadId) {
-            const thr = i.guild.channels.cache.get(cur.threadId);
-            await thr?.setArchived(true).catch(() => {});
-            await thr?.setLocked(true).catch(() => {});
-          }
-          await freeSquadResources(i.guild, cur);
-        } catch {}
-      }, ttlMin * 60 * 1000);
+      if (cur.threadId) {
+        const thr = i.guild.channels.cache.get(cur.threadId);
+        await thr?.setArchived(true).catch(() => {});
+        await thr?.setLocked(true).catch(() => {});
+      }
+      await freeSquadResources(i.guild, cur);
+    } catch {}
+  }, ttlMin * 60 * 1000);
+}
 
-      return;
-    }
+return;
+
 
     /* -------- /lfgedit -------- */
     if (i.commandName === 'lfgedit') {
