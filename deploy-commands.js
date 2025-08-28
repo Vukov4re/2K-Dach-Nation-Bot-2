@@ -40,6 +40,7 @@ commands.push(
           { name: 'Rec', value: 'Rec' },
           { name: 'Pro-Am', value: 'Pro-Am' },
           { name: 'MyTeam', value: 'MyTeam' },
+          { name: 'Stage', value: 'Stage' }, 
         ))
     .addStringOption(o =>
       o.setName('plattform').setDescription('PS5 / Xbox / PC').setRequired(true)
