@@ -435,44 +435,58 @@ if (ttlMin > 0) {
       return i.editReply(`✅ <@${user.id}> wurde zum Squad hinzugefügt.`);
     }
 
-    /* -------- /lfgkick -------- */
-    if (i.commandName === 'lfgkick') {
-      await i.deferReply({ ephemeral: true });
-      const target = await fetchLfgMessageFromInput(i, i.options.getString('message', true));
-      if (!target) return i.editReply('❌ LFG-Beitrag nicht gefunden.');
-      const state = readStateFromEmbed(target);
-      if (!state) return i.editReply('❌ Kein LFG-State im Embed (oder geschlossen).');
+    /* ========== /lfgkick ========== */
+if (i.commandName === "lfgkick") {
+  try {
+    await i.deferReply({ ephemeral: true });
 
-      if (!i.memberPermissions.has(PermissionFlagsBits.ManageChannels))
-        return i.editReply('⛔ Nur Mods/Admins dürfen das.');
+    const target = await fetchLfgMessageFromInput(i, i.options.getString("message", true));
+    if (!target) return i.editReply("❌ LFG-Beitrag nicht gefunden.");
 
-      const user = i.options.getUser('user', true);
-      const member = await i.guild.members.fetch(user.id).catch(() => null);
-      if (!member) return i.editReply('❌ Mitglied nicht gefunden.');
+    const state = readStateFromEmbed(target);
+    if (!state) return i.editReply("❌ Kein LFG-State im Embed (oder geschlossen).");
 
-      state.joined = state.joined || [];
-      if (!state.joined.includes(user.id)) return i.editReply('ℹ️ Mitglied ist nicht im Squad.');
-
-      const role = i.guild.roles.cache.get(state.roleId);
-      if (role) await member.roles.remove(role).catch(() => {});
-      if (state.threadId) {
-        const thr = i.guild.channels.cache.get(state.threadId);
-        await thr?.members.remove(user.id).catch(() => {});
-      }
-      state.joined = state.joined.filter(id => id !== user.id);
-
-      const full = state.joined.length >= state.slots;
-      const emb = renderLfgEmbed({ ...state, joinedIds: state.joined });
-      writeStateToEmbed(emb, state);
-      await target.edit({ embeds: [emb], components: [buildLfgRow(target.id, full)] }).catch(() => {});
-      return i.editReply(`✅ <@${user.id}> wurde aus dem Squad entfernt.`);
+    if (!i.memberPermissions.has(PermissionFlagsBits.ManageChannels)) {
+      return i.editReply("💟 Nur Mods/Admins dürfen das.");
     }
 
+    const user = i.options.getUser("user", true);
+    const member = await i.guild.members.fetch(user.id).catch(() => null);
+    if (!member) return i.editReply("❌ Mitglied nicht gefunden.");
+
+    state.joined = state.joined || [];
+    if (!state.joined.includes(user.id))
+      return i.editReply("ℹ️ Mitglied ist nicht im Squad.");
+
+    const role = i.guild.roles.cache.get(state.roleId);
+    if (role) await member.roles.remove(role).catch(() => {});
+
+    if (state.threadId) {
+      const thr = i.guild.channels.cache.get(state.threadId);
+      await thr?.members.remove(user.id).catch(() => {});
+    }
+
+    // Mitglied aus Liste entfernen
+    state.joined = state.joined.filter(id => id !== user.id);
+
+    const full = state.joined.length >= state.slots;
+    const emb = renderLfgEmbed({ ...state, joinedIds: state.joined });
+    writeStateToEmbed(emb, state);
+
+    await target.edit({ embeds: [emb], components: [buildLfgRow(target.id, full)] }).catch(() => {});
+    return i.editReply(`✅ <@${user.id}> wurde aus dem Squad entfernt.`);
+
   } catch (err) {
-    console.error('interaction (command) error:', err);
-    try { (i.deferred ? i.editReply : i.reply)({ content: '❌ Fehler bei der Ausführung.', ephemeral: true }); } catch {}
+    console.error("interaction (command) error:", err);
+    try {
+      (i.deferred ? i.editReply : i.reply)({
+        content: "❌ Fehler bei der Ausführung.",
+        ephemeral: true,
+      });
+    } catch {}
   }
-});
+}
+
 
 /* ======================= Button-Interaktionen ======================= */
 client.on(Events.InteractionCreate, async (i) => {
